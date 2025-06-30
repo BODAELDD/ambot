@@ -44,7 +44,12 @@ sequence = []
 last_signal = None
 
 def reformat_signal_message(original_message, is_result=False, win_type=None):
-    """Reformat the message to the desired format"""
+    """Reformat the message to the desired format.
+    
+    If is_result is True, handles WIN/LOSS results.
+    If is_result is False, it assumes the original_message is already
+    in the new desired signal body format and simply prepends the header.
+    """
     if is_result:
         # This part handles WIN/LOSS messages and remains unchanged
         if win_type == "regular":
@@ -57,67 +62,18 @@ def reformat_signal_message(original_message, is_result=False, win_type=None):
             return "🚨 AMO QUOTEX BOT 🚨\n💔 LOSS"
         return None
 
-    # --- New logic for reformatting trading signals ---
-    
-    asset = None
-    timeframe = None
-    trade_time = None
-    direction_line_with_symbol = None # To store "🔽 put" or "🔼 call"
-
-    # Compile regex patterns for efficiency
-    asset_pattern = re.compile(r"(?:💷|💰|💵|💴|💶)\s*([A-Z0-9/\-OTCotc]+)") # Matches currency pairs like EURUSD-OTC
-    timeframe_pattern = re.compile(r"🔥\s*(M\d+)") # Matches timeframes like M1, M5
-    time_pattern = re.compile(r"⌚️\s*(\d{2}:\d{2}:\d{2})") # Matches time like 16:49:00
-    direction_pattern = re.compile(r"(🔼 call|🔽 put)") # Matches "🔼 call" or "🔽 put" exactly
-
-    # Iterate through each line of the original message to extract data
-    for line in original_message.split('\n'):
-        if not asset:
-            match = asset_pattern.search(line)
-            if match:
-                asset = match.group(1)
-                continue
-        if not timeframe:
-            match = timeframe_pattern.search(line)
-            if match:
-                timeframe = match.group(1)
-                continue
-        if not trade_time:
-            match = time_pattern.search(line)
-            if match:
-                trade_time = match.group(1)
-                continue
-        if not direction_line_with_symbol:
-            match = direction_pattern.search(line)
-            if match:
-                direction_line_with_symbol = match.group(1)
-                continue
-
-    # If any essential part is missing, it's not a complete signal we can reformat
-    if not all([asset, timeframe, trade_time, direction_line_with_symbol]):
-        print(f"⚠️ Could not extract all parts for reformatting. Original message:\n{original_message}\n"
-              f"Missing: Asset={asset}, Timeframe={timeframe}, Time={trade_time}, Direction={direction_line_with_symbol}")
-        return None 
-
-    # Construct the new message using the extracted parts and static lines
+    # --- New logic for reformatting incoming trading signals ---
+    # We assume 'original_message' for a signal is already the desired body.
+    # We just need to add the bot's standard header.
     new_message_parts = [
         "🚨 AMO QUOTEX BOT 🚨",
         "", # Empty line for spacing
         "@amotradingteam - join channel now! 👈",
         "", # Empty line for spacing
-        f"💳 {asset}", # Changed symbol from 💷 to 💳
-        f"🔥 {timeframe}", 
-        f"⌛ {trade_time}", # Changed symbol from ⌚️ to ⌛
-        f"{direction_line_with_symbol}", # E.g., "🔽 put"
-        "", # Empty line for spacing
-        "🚦 Tend: Sell",
-        "📈 Forecast: 91.65%",
-        "💸 Payout: 93.0%",
-        "", # Empty line for spacing
-        "🔗 REGISTER HERE (https://bit.ly/QUOTEXVIP_MrSHEKO)"
+        original_message # Append the entire original message content as is
     ]
-
     return "\n".join(new_message_parts)
+
 
 async def send_to_telegram_channel(message):
     """Send message to Telegram channel using bot"""
@@ -247,7 +203,8 @@ async def main():
             else:
                 print("✅ Detected: WIN")
             
-            result_message = reformat_signal_message(None, True, win_type)
+            # For results, pass None as original_message to reformat_signal_message
+            result_message = reformat_signal_message(None, True, win_type) 
             await send_to_telegram_channel(result_message)
             return
             
@@ -255,7 +212,8 @@ async def main():
         if "✖️ Loss" in message_text:
             sequence.append("loss")
             print("✖️ Detected: Loss")
-            result_message = reformat_signal_message(None, True, "loss")
+            # For results, pass None as original_message to reformat_signal_message
+            result_message = reformat_signal_message(None, True, "loss") 
             await send_to_telegram_channel(result_message)
             return
             
@@ -264,22 +222,32 @@ async def main():
             print("⚖️ Detected: DOJI - ignoring")
             return
 
-        # Process trading signals - updated to detect new format
-        # Check if message contains the new signal format
-        if ("🛰 POCKET OPTION" in message_text and 
-            any(indicator in message_text for indicator in ['🔼 call', '🔽 put']) and
-            any(currency in message_text for currency in ['💷', '💰', '💵', '💴', '💶'])):
-            
-            formatted_message = reformat_signal_message(message_text)
+        # Process trading signals that are *already in the new desired format*
+        # This condition checks for key indicators of the NEW signal format.
+        is_new_signal_format = (
+            "💳" in message_text and # New asset symbol
+            "🔥" in message_text and # Timeframe symbol
+            "⌛" in message_text and # New time symbol
+            any(s in message_text for s in ["🔽 put", "🔼 call"]) and # Direction
+            "🚦 Tend:" in message_text and # Tend line
+            "📈 Forecast:" in message_text and # Forecast line
+            "💸 Payout:" in message_text and # Payout line
+            "🔗 REGISTER HERE" in message_text # Register link
+        )
+
+        if is_new_signal_format:
+            print("📈 Detected: Incoming message matches the new desired signal format structure.")
+            # Call reformat_signal_message, which will just prepend the header
+            formatted_message = reformat_signal_message(message_text, is_result=False) 
             
             if formatted_message:
-                print(f"🔄 Reformatted message: {formatted_message}")
+                print(f"🔄 Reformatted message (prepended header): \n{formatted_message}")
                 await send_to_telegram_channel(formatted_message)
-                sequence.append("call") # Assuming "call" here refers to a new signal, regardless of actual call/put
+                sequence.append("signal") # Use a generic 'signal' type for sequence tracking
                 last_signal = formatted_message  # Store the last signal
-                print("📈 Detected: SIGNAL (will be reformatted)")
             else:
-                print("⚠️ Message detected as potential signal but could not be reformatted - ignoring.")
+                # This block should ideally not be hit with the current reformat_signal_message logic
+                print("⚠️ New signal format detected, but reformat_signal_message returned None (unexpected).")
         else:
             print("⚠️ Message doesn't match expected signal or result format - ignoring.")
 
@@ -287,11 +255,9 @@ async def main():
         if len(sequence) > 12:
             sequence.pop(0)
 
-        # Removed the specific sequence check for 6 consecutive wins on M5
-        # as it might be specific to a different strategy, but kept the webhook for example.
-        # If this logic is still needed, it should be re-evaluated based on the new signal flow.
-        if sequence and sequence[-1] == "win" and sequence.count("win") >= 6: # Example of a generic check
-            if all(s == "win" for s in sequence[-6:]): # Check last 6 if they are all wins
+        # Example webhook for consecutive wins (adjust if your sequence logic changed)
+        if sequence and sequence[-1] == "win" and sequence.count("win") >= 6: 
+            if all(s == "win" for s in sequence[-6:]): 
                 print("🔥 Detected 6 consecutive wins. Sending webhook...")
                 try:
                     requests.post(webhook_url, json={"message": "6 consecutive trading wins detected!"})
