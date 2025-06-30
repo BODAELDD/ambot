@@ -18,12 +18,12 @@ print(f"CHANNEL_ID: {'SET' if os.getenv('CHANNEL_ID') else 'NOT SET'}")
 api_id = int(os.getenv("API_ID", "27758818"))
 api_hash = os.getenv("API_HASH", "f618d737aeaa7578fa0fa30c8c5572de")
 string_session = os.getenv("STRING_SESSION", "").strip()  # Strip whitespace
-channel_username = os.getenv("CHANNEL_USERNAME", "@@PocketSignalsM1")
+channel_username = os.getenv("CHANNEL_USERNAME", "@QuotexSignalsM1")
 webhook_url = os.getenv("WEBHOOK_URL", "https://marisbriedis.app.n8n.cloud/webhook/fd2ddf25-4b6c-4d7b-9ee1-0d927fda2a41")
 
 # Telegram bot and channel details
-BOT_TOKEN = os.getenv("BOT_TOKEN", "7711621476:AAHPgGsxmviRFIRSHtZ8FlQdPdH7lbhrzuM")
-CHANNEL_ID = int(os.getenv("CHANNEL_ID", "-1002383089858"))
+BOT_TOKEN = os.getenv("BOT_TOKEN", "7760622012:AAH3RBi2tf_DZHUoMt9sgkfJ4knSvg8WsuE")
+CHANNEL_ID = int(os.getenv("CHANNEL_ID", "-1002568222061"))
 
 # Clean and validate session string
 if string_session:
@@ -62,7 +62,7 @@ def reformat_signal_message(original_message, is_result=False, win_type=None):
     # Extract the relevant lines - updated to look for new format
     keep_lines = []
     for line in lines:
-        if any(prefix in line for prefix in ['🛰', '💷', '💎', '⌚️', '🔼', '🔽']):
+        if any(prefix in line for prefix in ['💳', '🔥', '⌛', '🔽', '🔼']):
             keep_lines.append(line)
 
     # Construct the new message
@@ -206,9 +206,9 @@ async def main():
             return
             
         # Handle Loss messages
-        if "✖️ Loss" in message_text:
+        if "💔 Loss" in message_text:
             sequence.append("loss")
-            print("✖️ Detected: Loss")
+            print("💔 Detected: Loss")
             result_message = reformat_signal_message(None, True, "loss")
             await send_to_telegram_channel(result_message)
             return
@@ -218,11 +218,6 @@ async def main():
             print("⚖️ Detected: DOJI - ignoring")
             return
 
-        # Process trading signals - updated to detect new format
-        # Check if message contains the new signal format
-        if ("🛰 POCKET OPTION" in message_text and 
-            any(indicator in message_text for indicator in ['🔼 call', '🔽 put']) and
-            any(currency in message_text for currency in ['💷', '💰', '💵', '💴', '💶'])):
             
             formatted_message = reformat_signal_message(message_text)
             
