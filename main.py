@@ -41,61 +41,44 @@ print(f"🔍 STRING_SESSION ends with: ...{string_session[-10:] if string_sessio
 sequence = []
 last_signal = None
 
-# --- MODIFIED SECTION: This function is completely updated for the new formats ---
-def reformat_signal_message(original_message, is_result=False, win_type=None):
+def create_new_format_signal(asset, timeframe, signal_time, direction):
     """
-    Reformat the message to the desired signal or result format.
-    """
-    if is_result:
-        # This part handles the new WIN/LOSS/MTG formats
-        if win_type == "regular":
-            return "💰 WIN 💰"
-        elif win_type in ["win1", "win2"]: # Handling Martingale wins
-            return "💰 MTG WIN 💰"
-        elif win_type == "loss":
-            return "📉 LOSS 📉"
-        return None # Should not happen
+    Creates a signal message in the new desired format.
+    Example output:
+    📉GBPJPY-OTC↗️
 
-    # --- This part handles the new signal format ---
-    # We will parse the original_message to build the new format.
-    # Example incoming message format assumed: "Pair: GBPJPY-OTC... Time: 02:08... Direction: CALL..."
+    ⏱️UTC +5:30⏱️
+
+    🎯 1 MIN TRADE 🐷
+
+    ⏱️02:08 - CALL↗️
+    """
+    # Determine direction text and icons
+    if 'put' in direction.lower() or 'sell' in direction.lower():
+        dir_text = "PUT"
+        dir_icon_main = "📉"
+        dir_icon_arrow = "↘️"
+    else: # Default to call/buy
+        dir_text = "CALL"
+        dir_icon_main = "📈"
+        dir_icon_arrow = "↗️"
+        
+    # Format the timeframe
+    timeframe_text = timeframe.replace('M', '') + " MIN TRADE"
     
-    # Use regex to find the required pieces of information.
-    # This pattern is designed to be flexible with the text around the data.
-    asset_match = re.search(r"([A-Z]{6,}(?:-OTC)?)", original_message, re.IGNORECASE)
-    time_match = re.search(r"(\d{2}:\d{2})", original_message)
-    direction_match = re.search(r"(CALL|PUT|BUY|SELL)", original_message, re.IGNORECASE)
-    timeframe_match = re.search(r"(\d+)\s*MIN", original_message, re.IGNORECASE)
+    # Format the time (extract HH:MM from HH:MM:SS)
+    formatted_time = signal_time[:5]
 
-    # Check if we found all the necessary parts
-    if asset_match and time_match and direction_match and timeframe_match:
-        asset = asset_match.group(1).upper()
-        signal_time = time_match.group(1)
-        direction_text = direction_match.group(1).upper()
-        timeframe = timeframe_match.group(1)
+    # Assemble the new message
+    new_message = (
+        f"{dir_icon_main}{asset}{dir_icon_arrow}\n\n"
+        f"⏱️UTC +5:30⏱️\n\n"
+        f"🎯 {timeframe_text} 🐷\n\n"
+        f"⏱️{formatted_time} - {dir_text}{dir_icon_arrow}"
+    )
+    
+    return new_message
 
-        # Determine direction and emoji
-        if direction_text in ["CALL", "BUY"]:
-            direction_formatted = "CALL↗️"
-            asset_formatted = f"📉{asset}↗️"
-        elif direction_text in ["PUT", "SELL"]:
-            direction_formatted = "PUT↘️"
-            asset_formatted = f"📈{asset}↘️"
-        else:
-            return None # Unknown direction
-
-        # Build the final message string in the desired format
-        new_message = (
-            f"{asset_formatted}\n"
-            f"⏱️UTC +5:30⏱️\n"
-            f"🎯 {timeframe} MIN TRADE 🐷\n"
-            f"⏱️{signal_time} - {direction_formatted}"
-        )
-        return new_message
-    else:
-        # If we can't parse the message, return None so we don't send garbage
-        print(f"⚠️ Could not parse signal from: '{original_message}'")
-        return None
 
 async def send_to_telegram_channel(message):
     """Send message to Telegram channel using bot"""
@@ -111,28 +94,27 @@ async def send_to_telegram_channel(message):
     }
     try:
         response = requests.post(url, json=payload)
-        response_data = response.json()
-        if not response_data.get("ok"):
-            print(f"❌ Telegram API Error: {response_data.get('description')}")
-        else:
-            print(f"✅ Message sent successfully to channel {CHANNEL_ID}.")
-        return response_data
+        print(f"Telegram API response: {response.text}")
+        return response.json()
     except Exception as e:
         print(f"❌ Error sending to Telegram channel: {str(e)}")
         return None
 
+
 def is_valid_session_string(session_str):
-    if not session_str: return False
-    if len(session_str) < 200:
-        print(f"❌ Session string too short: {len(session_str)} characters")
+    """Validate if the session string looks correct - more lenient validation"""
+    if not session_str or len(session_str) < 200:
+        print(f"❌ Session string too short or empty")
         return False
     if not session_str.startswith('1'):
-        print(f"❌ Session string doesn't start with '1': starts with '{session_str[:5]}'")
+        print(f"❌ Session string doesn't start with '1'")
         return False
     print("✅ Session string format looks valid")
     return True
 
+
 async def test_session_connection(client):
+    """Test if the session can connect and is authorized"""
     try:
         print("🔗 Testing session connection...")
         await client.connect()
@@ -146,9 +128,9 @@ async def test_session_connection(client):
         print(f"❌ Session connection test failed: {str(e)}")
         return False
 
+
 async def main():
     print("📡 Starting Telegram Bot...")
-    print(f"📡 Listening for messages on {channel_username}...")
     
     client = None
     if string_session and is_valid_session_string(string_session):
@@ -156,82 +138,95 @@ async def main():
         try:
             client = TelegramClient(StringSession(string_session), api_id, api_hash)
             if not await test_session_connection(client):
+                print("❌ String session failed authorization test, cannot proceed.")
                 await client.disconnect()
-                client = None
+                return
         except Exception as e:
             print(f"❌ Error creating client with string session: {str(e)}")
-            if client: await client.disconnect()
-            client = None
-    
-    if client is None:
-        print("🔴 CRITICAL: No valid session available. The bot cannot start.")
-        print("🔧 Please generate a new STRING_SESSION and set it in your environment variables.")
+            return
+    else:
+        print("❌ No valid session string provided. Cannot proceed.")
         return
 
-    # --- MODIFIED SECTION: Handler logic is simplified ---
+    print(f"📡 Listening for messages on {channel_username}...")
+
     @client.on(events.NewMessage(chats=channel_username))
     async def handler(event):
         global sequence, last_signal
 
         message_text = event.message.message.strip()
-        print(f"\n📨 Original message received: '{message_text}'")
+        print(f"\n📨 Original message received:\n---\n{message_text}\n---")
 
-        formatted_message = None
-        
-        # 1. Check for WIN results
-        if "WIN" in message_text.upper():
-            win_type = "regular"
-            if "✅¹" in message_text or "MTG 1" in message_text.upper():
-                win_type = "win1"
-                print("🔹 Detected: Martingale 1 WIN")
-            elif "✅²" in message_text or "MTG 2" in message_text.upper():
-                win_type = "win2"
-                print("🔹 Detected: Martingale 2 WIN")
-            else:
-                print("🔹 Detected: Regular WIN")
-
+        # --- NEW: Handle Result Messages ---
+        if "💰 MTG WIN 💰" in message_text:
+            print("✅ Detected: MTG WIN")
             sequence.append("win")
-            formatted_message = reformat_signal_message(message_text, is_result=True, win_type=win_type)
-            
-        # 2. Check for LOSS results
-        elif "LOSS" in message_text.upper():
-            print("🔹 Detected: LOSS")
-            sequence.append("loss")
-            formatted_message = reformat_signal_message(message_text, is_result=True, win_type="loss")
-
-        # 3. Check for DOJI (ignore)
-        elif "DOJI" in message_text.upper():
-            print("⚖️ Detected: DOJI - ignoring")
+            await send_to_telegram_channel("💰 MTG WIN 💰")
             return
 
-        # 4. If none of the above, assume it's a trading signal and try to format it
-        else:
-            print("🔹 Detected: Potential Signal")
+        if "💰 WIN 💰" in message_text:
+            print("✅ Detected: WIN")
+            sequence.append("win")
+            await send_to_telegram_channel("💰 WIN 💰")
+            return
+
+        if "📉 LOSS 📉" in message_text:
+            print("❌ Detected: LOSS")
+            sequence.append("loss")
+            await send_to_telegram_channel("📉 LOSS 📉")
+            return
+            
+        # Handle other non-signal messages
+        if "DOJI ⚖" in message_text or "CANCEL" in message_text:
+            print("⚖️ Detected: DOJI/CANCEL - ignoring")
+            return
+
+        # --- NEW: Handle and Reformat Trading Signals ---
+        # Regex to parse the OLD signal format
+        signal_pattern = re.compile(
+            r"💳\s*(?P<asset>.*?)\n"
+            r".*?🔥\s*(?P<timeframe>M\d+)\n"
+            r".*?⌛️\s*(?P<time>\d{2}:\d{2}:\d{2})\n"
+            r".*?(?P<direction>🔽 put|🔼 call)",
+            re.DOTALL | re.IGNORECASE
+        )
+        
+        match = signal_pattern.search(message_text)
+        
+        if match:
+            # Extract data from the old format
+            data = match.groupdict()
+            asset = data['asset'].strip()
+            timeframe = data['timeframe'].strip()
+            signal_time = data['time'].strip()
+            direction = data['direction'].strip()
+
+            print(f"📈 Detected old signal format: Asset={asset}, Timeframe={timeframe}, Time={signal_time}, Direction={direction}")
+
+            # Create the new formatted message
+            new_message = create_new_format_signal(asset, timeframe, signal_time, direction)
+            
+            print(f"🔄 Reformatted message:\n---\n{new_message}\n---")
+            await send_to_telegram_channel(new_message)
+            
             sequence.append("signal")
-            formatted_message = reformat_signal_message(message_text, is_result=False)
-            if formatted_message:
-                last_signal = formatted_message # Store the last valid signal
-
-        # 5. Send the formatted message if it was created successfully
-        if formatted_message:
-            print(f"✅ Formatting successful. Preparing to send:\n---\n{formatted_message}\n---")
-            await send_to_telegram_channel(formatted_message)
+            last_signal = new_message
         else:
-            print("⚠️ Message did not match any known format (Signal, Win, Loss) or failed parsing. Ignoring.")
+            print("⚠️ Message doesn't match any known signal or result format - ignoring.")
 
-        # --- Sequence management for webhook ---
+        # Sequence management for webhooks
         if len(sequence) > 12:
             sequence.pop(0)
 
-        if sequence and sequence[-1] == "win" and sequence.count("win") >= 6: 
-            if all(s == "win" for s in sequence[-6:]): 
+        if sequence and sequence[-1] == "win" and sequence.count("win") >= 6:
+            if all(s == "win" for s in sequence[-6:]):
                 print("🔥 Detected 6 consecutive wins. Sending webhook...")
                 try:
                     requests.post(webhook_url, json={"message": "6 consecutive trading wins detected!"})
                     print("✅ Webhook sent.")
                 except Exception as e:
                     print("❌ Webhook failed:", str(e))
-                sequence = [] # Reset sequence after webhook
+                sequence = []
 
     try:
         print("🚀 Starting client...")
